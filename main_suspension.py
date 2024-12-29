@@ -123,8 +123,8 @@ if __name__ == '__main__':
         old_npts = 2
         for dim in dimensions:
             for m in m_values:
-                #npts, rate, total_points = find_points_linear(old_npts, dim, m, k)
-                npts, rate, total_points = find_points_galloping(old_npts, dim, m, k)
+                npts, rate, total_points = find_points_linear(old_npts, dim, m, k)
+                #npts, rate, total_points = find_points_galloping(old_npts, dim, m, k)
                 
                 if npts is not None:
                     file_line = f"k={k}, dim={dim}, m={m}, success_rate={rate} base_nPts={npts} total_npts={total_points}\n" 
