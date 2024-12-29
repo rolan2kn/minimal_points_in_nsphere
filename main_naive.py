@@ -1,3 +1,13 @@
+import random
+import math
+import time
+import numpy as np
+import os.path
+
+import matplotlib.pyplot as plt
+
+from utils import sampling_nsphere, test_persistence
+
 '''
 Given an n-dimensional sphere unit S^n, the homology groups are Z in
 dimension 0 and n, and 0 otherwise.
@@ -20,28 +30,8 @@ dimension n.
 I want you to find n as a function of k and the significance level (95%)
 '''
 
-import os
-import sys
-import math
-import time
-import os.path
-import random
-import numpy as np
-import matplotlib.pyplot as plt
-
-from concurrent.futures import ProcessPoolExecutor, as_completed
-import multiprocessing
-
-from numpy.random import randn
-from numpy.linalg import norm
-from sklearn.metrics import pairwise_distances
-
-from utils import sampling_nsphere, test_persistence 
-
-
-def process_trial(items):
+def process_trial(nPts, dim, k):
     """ execute the experiment in the current trial """
-    nPts, dim, t, k = items
     
     points = sampling_nsphere(nPts, dim)
     
@@ -51,71 +41,31 @@ def process_trial(items):
 
     return answer
 
-
 def process_points(nPts, dim, N, k, expected_fails):
     # failures should not be greater than the expected_fails
-
-    with ProcessPoolExecutor() as executor:
-        failures = 0
-        items = [(nPts, dim, t, k) for t in range(N)]
-        
-        # submit all tasks
-        futures = [executor.submit(process_trial, item) for item in items]
-        
-        for future in as_completed(futures):
-            try:
-                if not future.result():
-                    failures += 1
-                if failures > expected_fails:
-                    # as soon as we fail enough we kill the executor
-                    # this raises a lot of exceptions due to forcing processes to finish
-                    # we redirect those exceptions to par_err.log file
-                    for f in futures:
-                        f.cancel()                  # Cancel any unfinished tasks
-                    executor.shutdown(wait=False)   # cancel remaining tasks
-                    
-                    break
-            except Exception as e:
-                failures += 1
-            
-    answer = failures <= expected_fails
-    return answer, failures
-
-def process_points_old(nPts, dim, N, k, expected_fails):
-    # failures should not be greater than the expected_fails
+    
     failures = 0
-    no_cores = len(os.sched_getaffinity(0))
-    iterations = (N+no_cores-1) // no_cores
-    remaining = N
+    for t in range(N):
+        answer = process_trial(nPts, dim, k)
+        if not answer:
+            failures += 1
+        if failures > expected_fails:
+            # we should increase the samples
+            return False, failures
 
-    for i in range(iterations):
-        num = min(no_cores, remaining)
-        passn = N - remaining
-        with multiprocessing.Pool(no_cores) as pool:
-            items = [(nPts, dim, t + passn, k) for t in range(num)]
-            for _answer in pool.imap_unordered(process_trial, items):
-                if not _answer:
-                    failures += 1
-                if failures > expected_fails:
-                    # as soon as we fail enough we kill the pool
-                    pool.terminate()
-                    # we should increase the samples
-                    return False, failures
-        remaining -= num
-    answer = failures <= expected_fails
-    return answer, failures
+    return (failures <= expected_fails), failures
 
 def find_points_galloping(dim, output_path, old_pts, N, k, expected_fails, result):
     lower_bound = old_pts
     upper_bound = old_pts
-    empirical_upper_bound = 10 ** (dim+1) + old_pts - 1
     
     # First, find a valid upper bound with a galloping search
     success = False
     fails = 0
-    while not success  and upper_bound < empirical_upper_bound:
+    while not success:
         upper_bound *= 2
         success, fails = process_points(upper_bound, dim, N, k, expected_fails)
+
     min_points = upper_bound
     conf = N - fails
     ans = False
@@ -129,6 +79,7 @@ def find_points_galloping(dim, output_path, old_pts, N, k, expected_fails, resul
             upper_bound = mid - 1
         else:
             lower_bound = mid + 1
+    
     file_line = f"dim: {dim} nPts {min_points} with confidence {conf}\n"
     result.write(file_line)
     result.flush()
@@ -154,10 +105,9 @@ def find_points_linear(dim, output_path, old_pts, N, k, expected_fails, result):
 
     return old_pts
 
+
 if __name__ == '__main__':
     np.random.seed(42)
-    # redirecting errors from cancelling unfinished tasks to par_err.log
-    sys.stderr = open('par_err.log', 'w')
 
     Dmax = 30 # Largest dimension
     N = int(100) # Monte Carlo samples
@@ -165,7 +115,7 @@ if __name__ == '__main__':
     expected_fails = N-confidence
     k = 0.5
 
-    output_path = time.strftime("./%y.%m.%d__%H.%M.%S_parallel_results")
+    output_path = time.strftime("./%y.%m.%d__%H.%M.%S_naive_results")
     if not os.path.isdir(output_path):
         os.makedirs(output_path)
     result = open(f"{output_path}/minimal_points_per_dim.txt", "w")
